@@ -58,7 +58,7 @@ fi
 
 # Use git subtree split to create a branch with only CK content at root.
 # --rejoin caches the split point so subsequent runs are incremental (fast).
-SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${SOURCE_BRANCH}")
+SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" --rejoin "${SOURCE_BRANCH}")
 
 echo ""
 echo "==> Done. Branch '${SPLIT_BRANCH}' now at ${SPLIT_SHA}"

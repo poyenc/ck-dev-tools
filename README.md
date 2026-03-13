@@ -70,6 +70,44 @@ ck-cherry-pick abc1234 ~/workspace/repo/rocm-libraries      # explicit path
 
 If the monorepo commit doesn't touch any files under `projects/composablekernel/`, it prints a warning and skips.
 
+### ck-export-to-mono
+
+Exports commits from a CK submodule branch back into `rocm-libraries` with the correct `projects/composablekernel/` path prefix. Automatically skips commits that have already been applied.
+
+**Run from:** CK submodule directory inside a customer repo
+
+```bash
+ck-export-to-mono origin/main                                                    # export all commits since origin/main
+ck-export-to-mono origin/main ~/workspace/repo/rocm-libraries                    # explicit path
+ck-export-to-mono HEAD~3 ~/workspace/repo/rocm-libraries users/poyenc/my-fix     # last 3 commits, custom branch name
+```
+
+The target branch in `rocm-libraries` is created automatically if it doesn't exist (branching from the currently checked-out branch). Running the same command twice is safe — already-applied commits are detected by subject line and skipped.
+
+## Workflow
+
+```
+┌─────────────────────────────────┐
+│  customer-repo/ck-submodule     │
+│                                 │
+│  (develop your fix/feature)     │
+│                                 │
+│  ck-export-to-mono origin/main  │
+└──────────────┬──────────────────┘
+               │ format-patch + git am --directory
+               ▼
+┌─────────────────────────────────┐
+│       rocm-libraries            │
+│                                 │
+│  (commits land under            │
+│   projects/composablekernel/)   │
+│                                 │
+│  Push branch, open PR           │
+└─────────────────────────────────┘
+```
+
+The reverse direction (pulling monorepo changes into a CK submodule):
+
 ## Workflow
 
 ```
@@ -96,6 +134,22 @@ If the monorepo commit doesn't touch any files under `projects/composablekernel/
 │  Or translate monorepo SHAs:    │
 │    ck-cherry-pick <mono-sha>    │
 └─────────────────────────────────┘
+```
+
+## Example: exporting a CK fix back to the monorepo
+
+```bash
+# 1. In the customer repo's CK submodule, after developing your fix
+cd ~/customer-repo/third_party/composable_kernel
+git log --oneline origin/main..HEAD   # review what you're exporting
+
+# 2. Export to rocm-libraries (creates branch, skips already-applied commits)
+ck-export-to-mono origin/main ~/workspace/repo/rocm-libraries users/poyenc/my-fix
+
+# 3. In rocm-libraries, verify and push
+cd ~/workspace/repo/rocm-libraries
+git log --oneline -5
+git push origin users/poyenc/my-fix
 ```
 
 ## Example: applying a monorepo fix to a customer repo

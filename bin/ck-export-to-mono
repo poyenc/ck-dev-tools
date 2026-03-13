@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# ck-export-to-mono — Export commits from a CK submodule branch into
+# rocm-libraries with the correct path prefix.
+#
+# Usage:
+#   cd /path/to/customer-repo/ck-submodule
+#   ck-export-to-mono <base-ref> [rocm-libraries-path] [target-branch]
+#
+# This script:
+#   1. Exports commits from <base-ref>..HEAD as patches
+#   2. Applies them into rocm-libraries under projects/composablekernel/
+#   3. Optionally creates a new branch in rocm-libraries
+#
+# The base-ref is typically the upstream branch your feature branched from
+# (e.g., origin/main, origin/develop, or a specific commit).
+
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+    echo "Usage: ck-export-to-mono <base-ref> [rocm-libraries-path] [target-branch]"
+    echo ""
+    echo "Export commits from a CK submodule into rocm-libraries."
+    echo "Run this inside the CK submodule directory."
+    echo ""
+    echo "Arguments:"
+    echo "  base-ref             Base ref for the commit range (e.g., origin/main)"
+    echo "  rocm-libraries-path  Path to rocm-libraries clone (default: from rocm-ck remote)"
+    echo "  target-branch        Branch to create in rocm-libraries (default: current CK branch name)"
+    echo ""
+    echo "Examples:"
+    echo "  ck-export-to-mono origin/main"
+    echo "  ck-export-to-mono origin/main ~/workspace/repo/rocm-libraries"
+    echo "  ck-export-to-mono HEAD~3 ~/workspace/repo/rocm-libraries users/poyenc/my-fix"
+    exit 0
+fi
+
+BASE_REF="$1"
+REMOTE_NAME="rocm-ck"
+CK_PREFIX="projects/composablekernel"
+
+# Resolve rocm-libraries path
+if [[ $# -ge 2 ]]; then
+    ROCM_LIBS_PATH="$(realpath "$2")"
+elif git remote get-url "${REMOTE_NAME}" &>/dev/null; then
+    ROCM_LIBS_PATH="$(git remote get-url "${REMOTE_NAME}")"
+else
+    echo "ERROR: No rocm-libraries path given and no '${REMOTE_NAME}' remote found."
+    echo "       Either pass the path or run 'ck-remote-setup' first."
+    exit 1
+fi
+
+# Resolve target branch name
+if [[ $# -ge 3 ]]; then
+    TARGET_BRANCH="$3"
+else
+    TARGET_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+fi
+
+# Validate rocm-libraries path
+if [[ ! -d "${ROCM_LIBS_PATH}/${CK_PREFIX}" ]]; then
+    echo "ERROR: '${ROCM_LIBS_PATH}/${CK_PREFIX}' not found."
+    echo "       Is '${ROCM_LIBS_PATH}' the root of rocm-libraries?"
+    exit 1
+fi
+
+# Count commits to export
+COMMIT_COUNT=$(git rev-list --count "${BASE_REF}..HEAD")
+if [[ "${COMMIT_COUNT}" -eq 0 ]]; then
+    echo "No commits to export (${BASE_REF}..HEAD is empty)."
+    exit 0
+fi
+
+echo "==> Exporting ${COMMIT_COUNT} commit(s) from $(git rev-parse --abbrev-ref HEAD)"
+echo "    Range: ${BASE_REF}..HEAD"
+echo ""
+
+# Create temp dir for patches
+PATCH_DIR="$(mktemp -d)"
+trap 'rm -rf "${PATCH_DIR}"' EXIT
+
+git format-patch "${BASE_REF}..HEAD" -o "${PATCH_DIR}" --quiet
+PATCH_COUNT=$(ls "${PATCH_DIR}"/*.patch 2>/dev/null | wc -l)
+echo "    Generated ${PATCH_COUNT} patch(es)"
+
+# Check if target branch exists in rocm-libraries
+echo ""
+echo "==> Applying to rocm-libraries at ${ROCM_LIBS_PATH}"
+echo "    Target branch: ${TARGET_BRANCH}"
+
+CURRENT_BRANCH=$(git -C "${ROCM_LIBS_PATH}" rev-parse --abbrev-ref HEAD)
+
+if git -C "${ROCM_LIBS_PATH}" rev-parse --verify "${TARGET_BRANCH}" &>/dev/null; then
+    echo "    Branch '${TARGET_BRANCH}' exists, checking it out"
+    git -C "${ROCM_LIBS_PATH}" checkout "${TARGET_BRANCH}"
+else
+    echo "    Creating branch '${TARGET_BRANCH}' from '${CURRENT_BRANCH}'"
+    git -C "${ROCM_LIBS_PATH}" checkout -b "${TARGET_BRANCH}"
+fi
+
+# Filter out patches already applied in rocm-libraries
+echo ""
+echo "==> Checking for already-applied commits..."
+APPLY_DIR="$(mktemp -d)"
+trap 'rm -rf "${PATCH_DIR}" "${APPLY_DIR}"' EXIT
+
+SKIPPED=0
+for patch in "${PATCH_DIR}"/*.patch; do
+    SUBJECT=$(sed -n 's/^Subject: \(\[PATCH[^]]*\] \)\?//p' "${patch}" | head -1)
+    if git -C "${ROCM_LIBS_PATH}" log "${TARGET_BRANCH}" --format="%s" --fixed-strings --grep="${SUBJECT}" -1 | grep -qF "${SUBJECT}"; then
+        echo "    SKIP (already applied): ${SUBJECT}"
+        SKIPPED=$((SKIPPED + 1))
+    else
+        cp "${patch}" "${APPLY_DIR}/"
+    fi
+done
+
+NEW_COUNT=$(ls "${APPLY_DIR}"/*.patch 2>/dev/null | wc -l)
+
+if [[ "${NEW_COUNT}" -eq 0 ]]; then
+    echo ""
+    echo "==> All ${PATCH_COUNT} commit(s) already applied. Nothing to do."
+    exit 0
+fi
+
+if [[ "${SKIPPED}" -gt 0 ]]; then
+    echo ""
+    echo "    Skipped ${SKIPPED}, applying ${NEW_COUNT} new commit(s)"
+fi
+
+echo ""
+echo "==> Applying patches under ${CK_PREFIX}/"
+git -C "${ROCM_LIBS_PATH}" am --directory="${CK_PREFIX}" "${APPLY_DIR}"/*.patch
+
+echo ""
+echo "==> Done! ${NEW_COUNT} commit(s) applied to '${TARGET_BRANCH}' in rocm-libraries."
+if [[ "${SKIPPED}" -gt 0 ]]; then
+    echo "    (${SKIPPED} already-applied commit(s) skipped)"
+fi
+echo ""
+echo "    cd ${ROCM_LIBS_PATH}"
+echo "    git log --oneline -${NEW_COUNT}"
