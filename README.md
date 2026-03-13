@@ -36,11 +36,17 @@ ck-subtree-update develop                # split develop
 ck-subtree-update users/poyenc/my-fix    # split a feature branch
 ```
 
-This creates a branch named `ck-split/<branch>` using `git subtree split`. The first run rewrites history (takes ~1 minute), subsequent runs are incremental and fast thanks to `--rejoin`.
+This creates a branch named `ck-split/<branch>` using `git subtree split`. The first run rewrites history (takes ~1 minute). To make subsequent runs incremental, use `--rejoin`:
+
+```bash
+ck-subtree-update --rejoin develop   # records split point on the source branch
+```
+
+`--rejoin` adds a merge commit to the source branch so future splits only process new commits. The flag can appear in any position. Note: `--rejoin` requires being on the source branch (the script handles this automatically by checking out and switching back).
 
 ### ck-remote-setup
 
-Adds `rocm-libraries` as a remote in a customer repo's CK submodule, configured so only the split branches are visible.
+Adds a local `rocm-libraries` clone as a remote in a customer repo's CK submodule, configured so only the split branches are visible. The path must be a local directory — remote URLs (e.g. `git@github.com:...`) are not supported.
 
 **Run from:** CK submodule directory inside a customer repo
 
@@ -56,6 +62,8 @@ After setup, branches from the monorepo appear as normal remote tracking branche
 rocm-ck/develop
 rocm-ck/users/poyenc/my-fix
 ```
+
+**Partial clone support:** If `rocm-libraries` was cloned with `--filter=blob:none` (partial clone), `ck-remote-setup` automatically uses `file://` protocol with `--filter=blob:none` so the fetch only transfers commits and trees (which are already local). This keeps the setup fast. Blob-dependent operations like cherry-pick are handled by `ck-cherry-pick` which fetches blobs on demand.
 
 ### ck-cherry-pick
 
