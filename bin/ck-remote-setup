@@ -56,7 +56,17 @@ git config "remote.${REMOTE_NAME}.fetch" "+refs/heads/ck-split/*:refs/remotes/${
 
 echo ""
 echo "==> Fetching from '${REMOTE_NAME}'..."
-git fetch "${REMOTE_NAME}"
+# If the source repo is a partial clone (blob:none), a plain fetch will fail
+# because the local repo acting as remote can't lazy-fetch missing objects.
+# Detect this and pass --filter=blob:none so the fetching side also does a
+# blobless fetch, avoiding requests for objects the source doesn't have.
+if git -C "${ROCM_LIBS_PATH}" config --get remote.origin.partialclonefilter &>/dev/null; then
+    FILTER="$(git -C "${ROCM_LIBS_PATH}" config --get remote.origin.partialclonefilter)"
+    echo "    (source repo is a partial clone with filter '${FILTER}', fetching with --filter=${FILTER})"
+    git fetch --filter="${FILTER}" "${REMOTE_NAME}"
+else
+    git fetch "${REMOTE_NAME}"
+fi
 
 echo ""
 echo "==> Available branches from rocm-libraries:"
