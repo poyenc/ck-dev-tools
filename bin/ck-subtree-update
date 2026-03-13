@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# ck-subtree-update — Split projects/composablekernel/ from rocm-libraries
+# into a standalone branch that can be used as a CK remote.
+#
+# Usage:
+#   cd /path/to/rocm-libraries
+#   ck-subtree-update [source-branch]
+#
+# This creates/updates a branch named "ck-split/<source-branch>" where
+# projects/composablekernel/ is the root. The resulting branch is compatible
+# with the standalone CK repo and can be fetched by customer repos.
+#
+# Examples:
+#   ck-subtree-update                    # split current branch
+#   ck-subtree-update develop            # split develop
+#   ck-subtree-update users/poyenc/fix   # split a feature branch
+
+set -euo pipefail
+
+CK_PREFIX="projects/composablekernel"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: ck-subtree-update [source-branch]"
+    echo ""
+    echo "Split projects/composablekernel/ from rocm-libraries into a"
+    echo "standalone branch 'ck-split/<source-branch>' that can be used"
+    echo "as a CK remote in customer repos."
+    echo ""
+    echo "Run this from the root of rocm-libraries."
+    echo ""
+    echo "Examples:"
+    echo "  ck-subtree-update                    # split current branch"
+    echo "  ck-subtree-update develop            # split develop"
+    echo "  ck-subtree-update users/poyenc/fix   # split a feature branch"
+    exit 0
+fi
+
+# Determine the source branch
+if [[ $# -ge 1 ]]; then
+    SOURCE_BRANCH="$1"
+else
+    SOURCE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+fi
+
+SPLIT_BRANCH="ck-split/${SOURCE_BRANCH}"
+
+echo "==> Splitting '${CK_PREFIX}' from '${SOURCE_BRANCH}'"
+echo "    into branch '${SPLIT_BRANCH}'"
+echo ""
+
+# Ensure we're in a git repo that has the CK prefix
+if [[ ! -d "${CK_PREFIX}" ]]; then
+    echo "ERROR: '${CK_PREFIX}' not found."
+    echo "       Run this from the root of rocm-libraries."
+    exit 1
+fi
+
+# Use git subtree split to create a branch with only CK content at root.
+# --rejoin caches the split point so subsequent runs are incremental (fast).
+SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${SOURCE_BRANCH}")
+
+echo ""
+echo "==> Done. Branch '${SPLIT_BRANCH}' now at ${SPLIT_SHA}"
+echo ""
+echo "In your customer repo, you can now do:"
+echo "  git remote add rocm-ck /path/to/rocm-libraries"
+echo "  git fetch rocm-ck ${SPLIT_BRANCH}"
+echo "  # then cherry-pick, merge, or rebase as needed"
+echo ""
+echo "Or use 'ck-remote-setup' to automate this."

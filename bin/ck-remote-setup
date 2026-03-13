@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#
+# ck-remote-setup — Add rocm-libraries as a CK-compatible remote in a
+# customer repo's CK submodule.
+#
+# Usage:
+#   cd /path/to/customer-repo/ck-submodule
+#   ck-remote-setup /path/to/rocm-libraries [remote-name]
+#
+# This adds rocm-libraries as a remote named "rocm-ck" (or your chosen name)
+# and configures the fetch refspec so only ck-split/* branches are visible
+# (mapped to rocm-ck/* tracking branches).
+
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+    echo "Usage: ck-remote-setup <path-to-rocm-libraries> [remote-name]"
+    echo ""
+    echo "Run this inside your CK submodule directory."
+    echo ""
+    echo "Example:"
+    echo "  cd ~/workspace/customer-repo/third_party/composable_kernel"
+    echo "  ck-remote-setup ~/workspace/repo/rocm-libraries"
+    exit 1
+fi
+
+ROCM_LIBS_PATH="$(realpath "$1")"
+REMOTE_NAME="${2:-rocm-ck}"
+
+# Validate
+if [[ ! -d "${ROCM_LIBS_PATH}/.git" ]] && [[ ! -f "${ROCM_LIBS_PATH}/.git" ]]; then
+    echo "ERROR: '${ROCM_LIBS_PATH}' is not a git repository."
+    exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "ERROR: Not inside a git repository. cd into your CK submodule first."
+    exit 1
+fi
+
+# Check if remote already exists
+if git remote get-url "${REMOTE_NAME}" &>/dev/null; then
+    EXISTING_URL=$(git remote get-url "${REMOTE_NAME}")
+    echo "Remote '${REMOTE_NAME}' already exists (url: ${EXISTING_URL})"
+    echo "Updating URL to ${ROCM_LIBS_PATH}"
+    git remote set-url "${REMOTE_NAME}" "${ROCM_LIBS_PATH}"
+else
+    echo "Adding remote '${REMOTE_NAME}' -> ${ROCM_LIBS_PATH}"
+    git remote add "${REMOTE_NAME}" "${ROCM_LIBS_PATH}"
+fi
+
+# Configure fetch refspec to only pull ck-split/* branches, mapped as
+# remote tracking branches under refs/remotes/<remote-name>/*
+# This strips the "ck-split/" prefix so branches appear as clean names.
+git config "remote.${REMOTE_NAME}.fetch" "+refs/heads/ck-split/*:refs/remotes/${REMOTE_NAME}/*"
+
+echo ""
+echo "==> Fetching from '${REMOTE_NAME}'..."
+git fetch "${REMOTE_NAME}"
+
+echo ""
+echo "==> Available branches from rocm-libraries:"
+git branch -r --list "${REMOTE_NAME}/*"
+
+echo ""
+echo "You can now:"
+echo "  git log ${REMOTE_NAME}/develop        # browse CK commits from monorepo develop"
+echo "  git cherry-pick <sha>                  # pick specific commits"
+echo "  git diff HEAD..${REMOTE_NAME}/develop  # see what's different"
+echo "  git merge ${REMOTE_NAME}/<branch>      # merge a feature branch"

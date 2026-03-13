@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# ck-cherry-pick — Cherry-pick a rocm-libraries commit into the CK submodule,
+# automatically translating from monorepo commit to subtree-split commit.
+#
+# Usage:
+#   cd /path/to/customer-repo/ck-submodule
+#   ck-cherry-pick <monorepo-commit-sha> [rocm-libraries-path]
+#
+# The monorepo commit SHA is what you see in rocm-libraries. This script:
+#   1. Finds the corresponding subtree-split commit in the CK-only history
+#   2. Cherry-picks it into your current branch
+#
+# If the commit only touches files outside projects/composablekernel/,
+# it will be skipped (no CK-relevant changes).
+
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+    echo "Usage: ck-cherry-pick <monorepo-commit> [rocm-libraries-path]"
+    echo ""
+    echo "Translates a rocm-libraries commit to the subtree-split equivalent"
+    echo "and cherry-picks it into your current CK submodule branch."
+    echo ""
+    echo "Examples:"
+    echo "  ck-cherry-pick abc1234"
+    echo "  ck-cherry-pick abc1234 ~/workspace/repo/rocm-libraries"
+    exit 1
+fi
+
+MONO_COMMIT="$1"
+REMOTE_NAME="rocm-ck"
+
+# Try to find rocm-libraries path from the remote, or use argument
+if [[ $# -ge 2 ]]; then
+    ROCM_LIBS_PATH="$(realpath "$2")"
+elif git remote get-url "${REMOTE_NAME}" &>/dev/null; then
+    ROCM_LIBS_PATH="$(git remote get-url "${REMOTE_NAME}")"
+else
+    echo "ERROR: No rocm-libraries path given and no '${REMOTE_NAME}' remote found."
+    echo "       Either pass the path or run 'ck-remote-setup' first."
+    exit 1
+fi
+
+CK_PREFIX="projects/composablekernel"
+
+echo "==> Looking up monorepo commit ${MONO_COMMIT}"
+
+# Verify the commit exists and touches CK files
+MONO_FULL=$(git -C "${ROCM_LIBS_PATH}" rev-parse "${MONO_COMMIT}")
+MONO_SUBJECT=$(git -C "${ROCM_LIBS_PATH}" log -1 --format="%s" "${MONO_FULL}")
+echo "    ${MONO_FULL} ${MONO_SUBJECT}"
+
+# Check if it touches CK
+CK_FILES=$(git -C "${ROCM_LIBS_PATH}" diff-tree --no-commit-id --name-only -r "${MONO_FULL}" -- "${CK_PREFIX}" 2>/dev/null || true)
+
+if [[ -z "${CK_FILES}" ]]; then
+    echo ""
+    echo "WARNING: Commit ${MONO_COMMIT} does not touch any files under ${CK_PREFIX}."
+    echo "         Nothing to cherry-pick."
+    exit 0
+fi
+
+echo ""
+echo "    Files changed in CK:"
+echo "${CK_FILES}" | sed 's/^/      /'
+
+# Find the branch this commit is on so we can identify the split branch
+# First, ensure we have a split for the branch containing this commit
+echo ""
+echo "==> Finding corresponding subtree-split commit..."
+
+# Look through all ck-split branches fetched into this repo to find the
+# translated commit. The subtree split commit will have a matching tree
+# for the CK subdirectory and a matching commit message.
+#
+# Strategy: search the split branch log for a commit with the same subject line.
+FOUND_SHA=""
+while IFS= read -r split_branch; do
+    split_branch="${split_branch#"${split_branch%%[![:space:]]*}"}"  # trim leading whitespace
+    MATCH=$(git log "${split_branch}" --format="%H" --grep="${MONO_SUBJECT}" --fixed-strings -1 2>/dev/null || true)
+    if [[ -n "${MATCH}" ]]; then
+        FOUND_SHA="${MATCH}"
+        echo "    Found: ${FOUND_SHA} on ${split_branch}"
+        break
+    fi
+done < <(git branch -r --list "${REMOTE_NAME}/*")
+
+if [[ -z "${FOUND_SHA}" ]]; then
+    echo ""
+    echo "ERROR: Could not find a matching subtree-split commit."
+    echo "       Make sure you have run 'ck-subtree-update' in rocm-libraries"
+    echo "       for the branch containing commit ${MONO_COMMIT}, then"
+    echo "       'git fetch ${REMOTE_NAME}' here."
+    exit 1
+fi
+
+echo ""
+echo "==> Cherry-picking ${FOUND_SHA}..."
+git cherry-pick "${FOUND_SHA}"
+
+echo ""
+echo "==> Done! Commit applied to $(git rev-parse --abbrev-ref HEAD)."
