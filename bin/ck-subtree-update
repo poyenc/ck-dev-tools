@@ -5,41 +5,63 @@
 #
 # Usage:
 #   cd /path/to/rocm-libraries
-#   ck-subtree-update [source-branch]
+#   ck-subtree-update [--rejoin] [source-branch]
 #
 # This creates/updates a branch named "ck-split/<source-branch>" where
 # projects/composablekernel/ is the root. The resulting branch is compatible
 # with the standalone CK repo and can be fetched by customer repos.
 #
+# Options:
+#   --rejoin  Record the split point as a merge commit on the source branch
+#             so future splits are incremental. Without this, the source
+#             branch is not modified.
+#
 # Examples:
 #   ck-subtree-update                    # split current branch
 #   ck-subtree-update develop            # split develop
-#   ck-subtree-update users/poyenc/fix   # split a feature branch
+#   ck-subtree-update --rejoin develop   # split develop (incremental)
 
 set -euo pipefail
 
 CK_PREFIX="projects/composablekernel"
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    echo "Usage: ck-subtree-update [source-branch]"
-    echo ""
-    echo "Split projects/composablekernel/ from rocm-libraries into a"
-    echo "standalone branch 'ck-split/<source-branch>' that can be used"
-    echo "as a CK remote in customer repos."
-    echo ""
-    echo "Run this from the root of rocm-libraries."
-    echo ""
-    echo "Examples:"
-    echo "  ck-subtree-update                    # split current branch"
-    echo "  ck-subtree-update develop            # split develop"
-    echo "  ck-subtree-update users/poyenc/fix   # split a feature branch"
-    exit 0
-fi
+REJOIN=false
 
-# Determine the source branch
-if [[ $# -ge 1 ]]; then
-    SOURCE_BRANCH="$1"
-else
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            echo "Usage: ck-subtree-update [--rejoin] [source-branch]"
+            echo ""
+            echo "Split projects/composablekernel/ from rocm-libraries into a"
+            echo "standalone branch 'ck-split/<source-branch>' that can be used"
+            echo "as a CK remote in customer repos."
+            echo ""
+            echo "Options:"
+            echo "  --rejoin  Record split point as a merge commit on the source"
+            echo "            branch so future splits are incremental (faster)."
+            echo "            Without this flag, the source branch is not modified."
+            echo ""
+            echo "Run this from the root of rocm-libraries."
+            echo ""
+            echo "Examples:"
+            echo "  ck-subtree-update                    # split current branch"
+            echo "  ck-subtree-update develop            # split develop"
+            echo "  ck-subtree-update --rejoin develop   # split develop (incremental)"
+            exit 0
+            ;;
+        --rejoin)
+            REJOIN=true
+            shift
+            ;;
+        *)
+            SOURCE_BRANCH="$1"
+            shift
+            ;;
+    esac
+done
+
+# Determine the source branch (default: current branch)
+if [[ -z "${SOURCE_BRANCH:-}" ]]; then
     SOURCE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 fi
 
@@ -58,7 +80,12 @@ fi
 
 # Use git subtree split to create a branch with only CK content at root.
 # --rejoin caches the split point so subsequent runs are incremental (fast).
-SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" --rejoin "${SOURCE_BRANCH}")
+REJOIN_FLAG=()
+if [[ "${REJOIN}" == true ]]; then
+    REJOIN_FLAG=(--rejoin)
+fi
+
+SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${REJOIN_FLAG[@]}" "${SOURCE_BRANCH}")
 
 echo ""
 echo "==> Done. Branch '${SPLIT_BRANCH}' now at ${SPLIT_SHA}"
