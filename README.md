@@ -1,10 +1,10 @@
 # ck-dev-tools
 
-CLI tools for developing [Composable Kernel (CK)](https://github.com/ROCm/composable_kernel) across the [`rocm-libraries`](https://github.com/ROCm/rocm-libraries) monorepo and customer repos that consume CK as a submodule.
+CLI tools for developing Composable Kernel (CK) across [`rocm-libraries`](https://github.com/ROCm/rocm-libraries) and customer repos that consume [`composable_kernel`](https://github.com/ROCm/composable_kernel) as a submodule.
 
 ## Problem
 
-`rocm-libraries` is a monorepo containing CK under `projects/composablekernel/`. The standalone CK repo is synced periodically, so there's a gap where changes exist in the monorepo but not yet in the CK repo. When debugging in a customer repo that uses CK as a submodule, you end up manually duplicating patches between the two.
+`rocm-libraries` is a monorepo containing CK under `projects/composablekernel/`. The standalone `composable_kernel` repo is synced periodically, so there's a gap where changes exist in `rocm-libraries` but not yet in `composable_kernel`. When debugging in a customer repo that uses `composable_kernel` as a submodule, you end up manually duplicating patches between the two.
 
 These tools let you use `rocm-libraries` directly as a CK remote — no manual patch copying.
 
@@ -125,6 +125,6 @@ git cherry-pick <sha-from-split-branch>
 `git subtree split --prefix=projects/composablekernel/` rewrites the monorepo history to produce a synthetic branch where:
 - Only commits touching `projects/composablekernel/` are included
 - The `projects/composablekernel/` prefix is stripped from all paths
-- The result has the same file layout as the standalone CK repo
+- The result has the same file layout as the standalone `composable_kernel` repo
 
 The `ck-remote-setup` refspec maps `refs/heads/ck-split/*` to `refs/remotes/rocm-ck/*`, so the `ck-split/` prefix is hidden and branches appear with clean names.
