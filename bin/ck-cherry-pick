@@ -97,7 +97,16 @@ fi
 
 echo ""
 echo "==> Cherry-picking ${FOUND_SHA}..."
-git cherry-pick "${FOUND_SHA}"
+# If the remote is a blobless fetch (partial clone source), git cherry-pick
+# would fail because blob objects aren't available locally. Instead, generate
+# the patch from rocm-libraries (where lazy fetching works) and apply it.
+REMOTE_URL=$(git remote get-url "${REMOTE_NAME}" 2>/dev/null || true)
+if [[ "${REMOTE_URL}" == file://* ]]; then
+    echo "    (using format-patch/am for blobless remote)"
+    git -C "${ROCM_LIBS_PATH}" format-patch -1 "${FOUND_SHA}" --stdout | git am
+else
+    git cherry-pick "${FOUND_SHA}"
+fi
 
 echo ""
 echo "==> Done! Commit applied to $(git rev-parse --abbrev-ref HEAD)."

@@ -56,14 +56,22 @@ git config "remote.${REMOTE_NAME}.fetch" "+refs/heads/ck-split/*:refs/remotes/${
 
 echo ""
 echo "==> Fetching from '${REMOTE_NAME}'..."
-# If the source repo is a partial clone (blob:none), a plain fetch will fail
-# because the local repo acting as remote can't lazy-fetch missing objects.
-# Detect this and pass --filter=blob:none so the fetching side also does a
-# blobless fetch, avoiding requests for objects the source doesn't have.
+# If the source repo is a partial clone (blob:none), git-upload-pack can't
+# serve missing blobs because lazy fetching is disabled in that context.
+# Work around this by:
+#   1. Using file:// URL (enables smart transport with filter support)
+#   2. Enabling uploadpack.allowFilter on the source repo
+#   3. Fetching with --filter=blob:none (only commits+trees, which ARE local)
+# This makes the fetch fast. Blob-dependent operations (cherry-pick, diff)
+# should use ck-cherry-pick, which gets blobs via format-patch in the source
+# repo where lazy fetching works normally.
 if git -C "${ROCM_LIBS_PATH}" config --get remote.origin.partialclonefilter &>/dev/null; then
-    FILTER="$(git -C "${ROCM_LIBS_PATH}" config --get remote.origin.partialclonefilter)"
-    echo "    (source repo is a partial clone with filter '${FILTER}', fetching with --filter=${FILTER})"
-    git fetch --filter="${FILTER}" "${REMOTE_NAME}"
+    echo "    (source repo is a partial clone, using blobless fetch)"
+    # Switch remote URL to file:// protocol for smart transport
+    git remote set-url "${REMOTE_NAME}" "file://${ROCM_LIBS_PATH}"
+    # Allow filter requests on the source repo
+    git -C "${ROCM_LIBS_PATH}" config uploadpack.allowFilter true
+    git fetch --filter=blob:none "${REMOTE_NAME}"
 else
     git fetch "${REMOTE_NAME}"
 fi
@@ -75,6 +83,6 @@ git branch -r --list "${REMOTE_NAME}/*"
 echo ""
 echo "You can now:"
 echo "  git log ${REMOTE_NAME}/develop        # browse CK commits from monorepo develop"
-echo "  git cherry-pick <sha>                  # pick specific commits"
+echo "  ck-cherry-pick <monorepo-sha>          # pick specific commits"
 echo "  git diff HEAD..${REMOTE_NAME}/develop  # see what's different"
 echo "  git merge ${REMOTE_NAME}/<branch>      # merge a feature branch"

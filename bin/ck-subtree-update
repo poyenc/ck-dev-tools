@@ -85,7 +85,17 @@ if [[ "${REJOIN}" == true ]]; then
     REJOIN_FLAG=(--rejoin)
 fi
 
-SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${REJOIN_FLAG[@]}" "${SOURCE_BRANCH}")
+# --rejoin merges back into HEAD, so we must be on the source branch.
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "${REJOIN}" == true && "${CURRENT_BRANCH}" != "${SOURCE_BRANCH}" ]]; then
+    echo "    (checking out '${SOURCE_BRANCH}' for --rejoin)"
+    git checkout "${SOURCE_BRANCH}"
+    SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${REJOIN_FLAG[@]}")
+    echo "    (switching back to '${CURRENT_BRANCH}')"
+    git checkout "${CURRENT_BRANCH}"
+else
+    SPLIT_SHA=$(git subtree split --prefix="${CK_PREFIX}" --branch="${SPLIT_BRANCH}" "${REJOIN_FLAG[@]}" "${SOURCE_BRANCH}")
+fi
 
 echo ""
 echo "==> Done. Branch '${SPLIT_BRANCH}' now at ${SPLIT_SHA}"
